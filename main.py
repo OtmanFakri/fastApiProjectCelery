@@ -1,7 +1,12 @@
 import asyncio
+import base64
+from datetime import datetime
 import os
 from enum import Enum
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
+from io import BytesIO
+
+import pandas as pd
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends,WebSocket
 from celery_worker import add, save_file_task
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -82,3 +87,17 @@ def get_file_by_id(file_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="File not found")
 
 
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    try:
+        data = await websocket.receive_text()
+        # Decode the base64 file
+        file_content = base64.b64decode(data)
+        # Read the file using Pandas
+        df = pd.read_excel(BytesIO(file_content))
+        # Send back the first 10 rows as JSON
+        await websocket.send_json(df.head(10).to_dict(orient='records'))
+    except Exception as e:
+        await websocket.send_text(f"Error: {str(e)}")
+        await websocket.close()
