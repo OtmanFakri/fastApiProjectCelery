@@ -27,7 +27,9 @@ kombu==5.3.7
 markdown-it-py==3.0.0
 MarkupSafe==2.1.5
 mdurl==0.1.2
+numpy==1.26.4
 orjson==3.10.3
+pandas==2.2.2
 prometheus_client==0.20.0
 prompt-toolkit==3.0.43
 pydantic==2.7.1
