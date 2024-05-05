@@ -6,8 +6,11 @@ from enum import Enum
 from io import BytesIO
 
 import pandas as pd
+from celery.result import AsyncResult
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends,WebSocket
-from celery_worker import add, save_file_task
+from fastapi.middleware.cors import CORSMiddleware
+
+from celery_worker import add, save_file_task,celery
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -40,10 +43,20 @@ class FilesUpload(BaseModel):
 
 
 
+
 app = FastAPI()
 
 os.makedirs("files", exist_ok=True)
 
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Replace "*" with the specific origins you want to allow
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["*"],
+)
 @app.on_event("startup")
 async def startup_event():
     await init_models()
@@ -69,7 +82,7 @@ async def save_file(file: UploadFile = File(...)):
     try:
         contents = await file.read()
         result = save_file_task.delay(file_path, contents)
-        return {"message": f"File {file.filename} is being processed. with id {result.id} "}
+        return {"message": f"File {file.filename} is being processed.", "result_id": str(result.id)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"There was an error uploading the file: {str(e)}")
     finally:
@@ -88,16 +101,43 @@ def get_file_by_id(file_id: int, db: Session = Depends(get_db)):
 
 
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_post(websocket: WebSocket):
     await websocket.accept()
     try:
         data = await websocket.receive_text()
         # Decode the base64 file
         file_content = base64.b64decode(data)
+        file_path = os.path.join("files", data['filename'])
+        result = save_file_task.delay(file_path, file_content)
+
         # Read the file using Pandas
         df = pd.read_excel(BytesIO(file_content))
         # Send back the first 10 rows as JSON
-        await websocket.send_json(df.head(10).to_dict(orient='records'))
+        await websocket.send_json(str(result.id))
     except Exception as e:
         await websocket.send_text(f"Error: {str(e)}")
         await websocket.close()
+
+@app.websocket("/ws/task/{task_id}")
+async def websocket_endpoint(websocket: WebSocket, task_id: str):
+    await websocket.accept()
+
+    # Get the task result asynchronously
+    result = AsyncResult(task_id, app=celery)
+
+    while True:
+        if result.ready():
+            break
+        await websocket.send_text(result.state)
+        await asyncio.sleep(1)
+
+    # Task is ready, send the final result
+    if result.successful():
+        task_result = result.result
+        if isinstance(task_result, dict):
+            await websocket.send_json(task_result)
+        else:
+            await websocket.send_text(str(result.result))
+        await websocket.close()
+    else:
+        await websocket.send_text(result.state)

@@ -36,8 +36,9 @@ def save_file_task(file_path, file_content):
         session.commit()
         session.refresh(new_file)
         # Chain the task to process the customers after saving the file
-        process_customers_task.delay(file_path)
-        return {"file_path": file_path, "status": "uploading_Pending"}
+        result = process_customers_task.delay(file_path)
+
+        return {"file_path": file_path, "status": new_file.status, "task_id": result.id}
     except Exception as e:
         print(f"There was an error uploading the file: {str(e)}")
         raise e
