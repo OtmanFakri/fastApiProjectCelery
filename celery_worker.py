@@ -73,18 +73,4 @@ def add(a, b):
     return {"number": a+b}
 
 
-"""
-    db_session = SessionLocal()
-    try:
-        with open(file_path, 'wb+') as f:
-            f.write(file_content)
-        new_file = files_upload(file_url=file_path, status="uploading_Pending")
-        db_session.add(new_file)
-        db_session.commit()
-        db_session.refresh(new_file)
-    except Exception as e:
-        db_session.rollback()
-        print(f"There was an error uploading the file: {str(e)}")
-    finally:
-        db_session.close()
-        """
+

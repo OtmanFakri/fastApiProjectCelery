@@ -7,14 +7,19 @@ from io import BytesIO
 
 import pandas as pd
 from celery.result import AsyncResult
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends,WebSocket
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends,WebSocket,Request
 from fastapi.middleware.cors import CORSMiddleware
+import pdfkit
+from sqlalchemy.future import select
+from starlette.responses import FileResponse
+from starlette.templating import Jinja2Templates
 
 from celery_worker import add, save_file_task,celery
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from config import Base, engine, get_db, init_models
+from models.Customers import Customers
 from models.files_upload import files_upload
 
 
@@ -47,6 +52,7 @@ class FilesUpload(BaseModel):
 app = FastAPI()
 
 os.makedirs("files", exist_ok=True)
+templates = Jinja2Templates(directory="templates")
 
 
 
@@ -141,3 +147,27 @@ async def websocket_endpoint(websocket: WebSocket, task_id: str):
         await websocket.close()
     else:
         await websocket.send_text(result.state)
+
+
+@app.get("/pdf")
+async def generate_pdf(request: Request, db: Session = Depends(get_db)):
+    try:
+        customers = await db.execute(select(Customers).order_by(Customers.id))
+        customers_data = [{"id": customer.id, "name": customer.name, "email": customer.email, "address": customer.address} for customer in customers.scalars().all()]
+
+        context = {'customers': customers_data}
+
+        # Render the template as HTML string
+        template = templates.get_template("testing.html")
+        html_content = template.render(request=request, **context)
+
+        # Path to save the PDF
+        pdf_path = "hello_world.pdf"
+
+        # Convert HTML to PDF
+        pdfkit.from_string(html_content, pdf_path)
+
+        # Return the PDF as a file response
+        return FileResponse(path=pdf_path, filename="hello_world.pdf", media_type='application/pdf')
+    except Exception as e:
+        return {"error": str(e)}
